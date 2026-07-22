@@ -1,0 +1,104 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Publish immutable MDBList image
+
+on:
+  push:
+    branches:
+      - 'release/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Validate release branch
+    runs-on: ubuntu-24.04
+    outputs:
+      image_tag: ${{ steps.release.outputs.image_tag }}
+    steps:
+      - name: Validate branch and derive image tag
+        id: release
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" != "branch" ]]; then
+            echo "Release images must be built from a branch; got: $GITHUB_REF_TYPE" >&2
+            exit 1
+          fi
+
+          branch="$GITHUB_REF_NAME"
+          if [[ ! "$branch" =~ ^release/v[0-9]+\.[0-9]+\.[0-9]+-score-mdb\.[1-9][0-9]*$ ]]; then
+            echo "Expected branch release/vX.Y.Z-score-mdb.N with N >= 1 and no leading zero; got: $branch" >&2
+            exit 1
+          fi
+          echo "image_tag=${branch#release/}" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Build and publish linux/amd64 image
+    needs: prepare
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Commit timestamp
+        id: timestamp
+        shell: bash
+        run: echo "timestamp=$(git log -1 --pretty=%ct)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Refuse an existing release tag
+        shell: bash
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.image_tag }}
+        run: |
+          set +e
+          inspect_output=$(docker buildx imagetools inspect "$IMAGE" 2>&1)
+          inspect_status=$?
+          set -e
+
+          if [[ $inspect_status -eq 0 ]]; then
+            echo "Refusing to overwrite immutable image tag: $IMAGE" >&2
+            exit 1
+          fi
+          if [[ ! "$inspect_output" =~ (manifest[[:space:]]unknown|not[[:space:]]found|404[[:space:]]Not[[:space:]]Found) ]]; then
+            echo "Could not prove that the release tag is unused; refusing to publish." >&2
+            echo "$inspect_output" >&2
+            exit 1
+          fi
+
+      - name: Build and publish immutable tags
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            COMMIT_TAG=${{ github.sha }}
+            BUILD_VERSION=${{ needs.prepare.outputs.image_tag }}
+            SOURCE_DATE_EPOCH=${{ steps.timestamp.outputs.timestamp }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.image_tag }}
+            ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.image_tag }}-${{ github.sha }}
+          provenance: false
