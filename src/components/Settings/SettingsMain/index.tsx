@@ -76,6 +76,9 @@ const messages = defineMessages('components.Settings.SettingsMain', {
     'Base URL for YouTube videos if a self-hosted YouTube instance is used.',
   versionCheck: 'Version Check',
   versionCheckTip: 'Automatically check for new versions on GitHub.',
+  mdblistApiKey: 'MDBList API Key',
+  mdblistApiKeyTip:
+    'Used server-side to load MDBList lists for custom Discover sliders.',
   validationUrl: 'You must provide a valid URL',
   validationUrlTrailingSlash: 'URL must not end in a trailing slash',
 });
@@ -184,6 +187,7 @@ const SettingsMain = () => {
             partialRequestsEnabled: data?.partialRequestsEnabled,
             enableSpecialEpisodes: data?.enableSpecialEpisodes,
             cacheImages: data?.cacheImages,
+            mdblistApiKey: data?.mdblistApiKey,
             youtubeUrl: data?.youtubeUrl,
             versionCheck: data?.versionCheck,
           }}
@@ -207,6 +211,7 @@ const SettingsMain = () => {
                 partialRequestsEnabled: values.partialRequestsEnabled,
                 enableSpecialEpisodes: values.enableSpecialEpisodes,
                 cacheImages: values.cacheImages,
+                mdblistApiKey: values.mdblistApiKey,
                 youtubeUrl: values.youtubeUrl,
                 versionCheck: values?.versionCheck,
               });
@@ -586,6 +591,24 @@ const SettingsMain = () => {
                         );
                       }}
                     />
+                  </div>
+                </div>
+                <div className="form-row">
+                  <label htmlFor="mdblistApiKey" className="text-label">
+                    {intl.formatMessage(messages.mdblistApiKey)}
+                    <span className="label-tip">
+                      {intl.formatMessage(messages.mdblistApiKeyTip)}
+                    </span>
+                  </label>
+                  <div className="form-input-area">
+                    <div className="form-input-field">
+                      <SensitiveInput
+                        as="field"
+                        id="mdblistApiKey"
+                        name="mdblistApiKey"
+                        type="text"
+                      />
+                    </div>
                   </div>
                 </div>
                 <div className="form-row">

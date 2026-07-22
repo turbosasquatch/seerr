@@ -1,7 +1,12 @@
 import PlexTvAPI from '@server/api/plextv';
 import type { SortOptions } from '@server/api/themoviedb';
+import MdbListAPI from '@server/api/mdblist';
 import TheMovieDb from '@server/api/themoviedb';
-import type { TmdbKeyword } from '@server/api/themoviedb/interfaces';
+import type {
+  TmdbKeyword,
+  TmdbMovieDetails,
+  TmdbTvDetails,
+} from '@server/api/themoviedb/interfaces';
 import { MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
@@ -16,8 +21,10 @@ import logger from '@server/logger';
 import { mapProductionCompany } from '@server/models/Movie';
 import {
   mapCollectionResult,
+  mapMovieDetailsToResult,
   mapMovieResult,
   mapPersonResult,
+  mapTvDetailsToResult,
   mapTvResult,
 } from '@server/models/Search';
 import { mapNetwork } from '@server/models/Tv';
@@ -92,6 +99,471 @@ const QueryFilterOptions = z.object({
 export type FilterOptions = z.infer<typeof QueryFilterOptions>;
 const ApiQuerySchema = QueryFilterOptions.omit({
   certificationMode: true,
+});
+
+const MdbListQuerySchema = ApiQuerySchema.extend({
+  url: z.string().min(1),
+});
+
+type MdbListResolvedItem =
+  | {
+      type: MediaType.MOVIE;
+      rank: number;
+      runtime?: number;
+      keywordIds: number[];
+      companyIds: number[];
+      networkIds: number[];
+      result: ReturnType<typeof mapMovieDetailsToResult>;
+    }
+  | {
+      type: MediaType.TV;
+      rank: number;
+      runtime?: number;
+      keywordIds: number[];
+      companyIds: number[];
+      networkIds: number[];
+      result: ReturnType<typeof mapTvDetailsToResult>;
+    };
+
+const hasActiveMdbListFilters = (query: FilterOptions): boolean =>
+  !!(
+    query.sortBy ||
+    query.primaryReleaseDateGte ||
+    query.primaryReleaseDateLte ||
+    query.firstAirDateGte ||
+    query.firstAirDateLte ||
+    query.genre ||
+    query.keywords ||
+    query.excludeKeywords ||
+    query.language ||
+    query.withRuntimeGte ||
+    query.withRuntimeLte ||
+    query.voteAverageGte ||
+    query.voteAverageLte ||
+    query.voteCountGte ||
+    query.voteCountLte ||
+    query.studio ||
+    query.network
+  );
+
+const splitNumberFilter = (value?: string): number[] =>
+  value
+    ?.split(/[|,]/)
+    .map((filterValue) => Number(filterValue))
+    .filter((filterValue) => Number.isFinite(filterValue)) ?? [];
+
+const dateMatches = ({
+  value,
+  gte,
+  lte,
+}: {
+  value?: string;
+  gte?: string;
+  lte?: string;
+}) => {
+  if (!value) {
+    return !(gte || lte);
+  }
+
+  if (gte && value < gte) {
+    return false;
+  }
+
+  if (lte && value > lte) {
+    return false;
+  }
+
+  return true;
+};
+
+const filterMdbListItems = (
+  items: MdbListResolvedItem[],
+  query: FilterOptions
+) => {
+  const genres = splitNumberFilter(query.genre);
+  const keywords = splitNumberFilter(query.keywords);
+  const excludeKeywords = splitNumberFilter(query.excludeKeywords);
+  const studios = splitNumberFilter(query.studio);
+  const networks = splitNumberFilter(query.network);
+
+  return items.filter((item) => {
+    if (
+      !dateMatches({
+        value:
+          item.type === MediaType.MOVIE
+            ? item.result.release_date
+            : item.result.first_air_date,
+        gte: query.primaryReleaseDateGte ?? query.firstAirDateGte,
+        lte: query.primaryReleaseDateLte ?? query.firstAirDateLte,
+      })
+    ) {
+      return false;
+    }
+
+    if (query.language && item.result.original_language !== query.language) {
+      return false;
+    }
+
+    if (
+      genres.length &&
+      !genres.some((genreId) => item.result.genre_ids.includes(genreId))
+    ) {
+      return false;
+    }
+
+    if (
+      keywords.length &&
+      !keywords.some((keywordId) => item.keywordIds.includes(keywordId))
+    ) {
+      return false;
+    }
+
+    if (
+      excludeKeywords.length &&
+      excludeKeywords.some((keywordId) => item.keywordIds.includes(keywordId))
+    ) {
+      return false;
+    }
+
+    if (
+      studios.length &&
+      !studios.some((studioId) => item.companyIds.includes(studioId))
+    ) {
+      return false;
+    }
+
+    if (
+      networks.length &&
+      !networks.some((networkId) => item.networkIds.includes(networkId))
+    ) {
+      return false;
+    }
+
+    if (
+      query.withRuntimeGte &&
+      (!item.runtime || item.runtime < Number(query.withRuntimeGte))
+    ) {
+      return false;
+    }
+
+    if (
+      query.withRuntimeLte &&
+      (!item.runtime || item.runtime > Number(query.withRuntimeLte))
+    ) {
+      return false;
+    }
+
+    if (
+      query.voteAverageGte &&
+      item.result.vote_average < Number(query.voteAverageGte)
+    ) {
+      return false;
+    }
+
+    if (
+      query.voteAverageLte &&
+      item.result.vote_average > Number(query.voteAverageLte)
+    ) {
+      return false;
+    }
+
+    if (
+      query.voteCountGte &&
+      item.result.vote_count < Number(query.voteCountGte)
+    ) {
+      return false;
+    }
+
+    if (
+      query.voteCountLte &&
+      item.result.vote_count > Number(query.voteCountLte)
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+};
+
+const sortMdbListItems = (
+  items: MdbListResolvedItem[],
+  sortBy?: SortOptions
+) => {
+  const sortedItems = [...items];
+  const direction = sortBy?.endsWith('.asc') ? 1 : -1;
+
+  switch (sortBy) {
+    case 'popularity.asc':
+    case 'popularity.desc':
+      return sortedItems.sort(
+        (a, b) => direction * (a.result.popularity - b.result.popularity)
+      );
+    case 'release_date.asc':
+    case 'release_date.desc':
+    case 'first_air_date.asc':
+    case 'first_air_date.desc':
+      return sortedItems.sort((a, b) => {
+        const aDate =
+          a.type === MediaType.MOVIE
+            ? a.result.release_date
+            : a.result.first_air_date;
+        const bDate =
+          b.type === MediaType.MOVIE
+            ? b.result.release_date
+            : b.result.first_air_date;
+
+        return direction * aDate.localeCompare(bDate);
+      });
+    case 'original_title.asc':
+    case 'original_title.desc':
+      return sortedItems.sort((a, b) => {
+        const aTitle =
+          a.type === MediaType.MOVIE
+            ? a.result.original_title
+            : a.result.original_name;
+        const bTitle =
+          b.type === MediaType.MOVIE
+            ? b.result.original_title
+            : b.result.original_name;
+
+        return direction * aTitle.localeCompare(bTitle);
+      });
+    case 'vote_average.asc':
+    case 'vote_average.desc':
+      return sortedItems.sort(
+        (a, b) => direction * (a.result.vote_average - b.result.vote_average)
+      );
+    case 'vote_count.asc':
+    case 'vote_count.desc':
+      return sortedItems.sort(
+        (a, b) => direction * (a.result.vote_count - b.result.vote_count)
+      );
+    default:
+      return sortedItems.sort((a, b) => a.rank - b.rank);
+  }
+};
+
+discoverRoutes.get('/mdblist', async (req, res, next) => {
+  const settings = getSettings();
+  const apiKey = settings.main.mdblistApiKey;
+
+  if (!apiKey) {
+    return next({
+      status: 400,
+      message: 'MDBList API key has not been configured.',
+    });
+  }
+
+  const itemsPerPage = 20;
+
+  try {
+    const query = MdbListQuerySchema.parse(req.query);
+    const mdblist = new MdbListAPI(apiKey);
+    const tmdb = createTmdbWithRegionLanguage(req.user);
+    const page = Number(query.page ?? 1);
+    const isFiltered = hasActiveMdbListFilters(query);
+    const firstPage = await mdblist.getListItems({
+      listUrl: query.url,
+      limit: isFiltered ? 100 : itemsPerPage,
+      offset: isFiltered ? 0 : (page - 1) * itemsPerPage,
+    });
+
+    const listData = isFiltered
+      ? [
+          firstPage,
+          ...(await Promise.all(
+            Array.from(
+              {
+                length: Math.max(
+                  0,
+                  Math.ceil(firstPage.pagination.total / 100) - 1
+                ),
+              },
+              async (_value, index) =>
+                mdblist.getListItems({
+                  listUrl: query.url,
+                  limit: 100,
+                  offset: (index + 1) * 100,
+                })
+            )
+          )),
+        ]
+      : [firstPage];
+
+    const listItems = listData
+      .flatMap((data) => [...data.movies, ...data.shows])
+      .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0));
+
+    const resolvedItems = (
+      await Promise.all(
+        listItems.map(
+          async (item): Promise<MdbListResolvedItem | undefined> => {
+            const tmdbId = item.ids?.tmdb ?? item.id;
+            const imdbId = item.ids?.imdb ?? item.imdb_id;
+            const tvdbId = item.ids?.tvdb ?? item.tvdb_id;
+
+            try {
+              if (item.mediatype === 'movie') {
+                if (tmdbId) {
+                  const movie = await tmdb.getMovie({ movieId: tmdbId });
+                  return {
+                    type: MediaType.MOVIE,
+                    rank: item.rank ?? 0,
+                    runtime: movie.runtime,
+                    keywordIds: movie.keywords.keywords.map(
+                      (keyword) => keyword.id
+                    ),
+                    companyIds: movie.production_companies.map(
+                      (company) => company.id
+                    ),
+                    networkIds: [],
+                    result: mapMovieDetailsToResult(movie),
+                  };
+                }
+
+                if (imdbId) {
+                  const movie = (await tmdb.getMediaByImdbId({
+                    imdbId,
+                  })) as TmdbMovieDetails;
+                  return {
+                    type: MediaType.MOVIE,
+                    rank: item.rank ?? 0,
+                    runtime: movie.runtime,
+                    keywordIds: movie.keywords.keywords.map(
+                      (keyword) => keyword.id
+                    ),
+                    companyIds: movie.production_companies.map(
+                      (company) => company.id
+                    ),
+                    networkIds: [],
+                    result: mapMovieDetailsToResult(movie),
+                  };
+                }
+              }
+
+              if (item.mediatype === 'show') {
+                if (tmdbId) {
+                  const show = await tmdb.getTvShow({ tvId: tmdbId });
+                  return {
+                    type: MediaType.TV,
+                    rank: item.rank ?? 0,
+                    runtime:
+                      Math.max(...show.episode_run_time, 0) || undefined,
+                    keywordIds: show.keywords.results.map(
+                      (keyword) => keyword.id
+                    ),
+                    companyIds: show.production_companies.map(
+                      (company) => company.id
+                    ),
+                    networkIds: show.networks.map((network) => network.id),
+                    result: mapTvDetailsToResult(show),
+                  };
+                }
+
+                if (tvdbId) {
+                  const show = await tmdb.getShowByTvdbId({ tvdbId });
+                  return {
+                    type: MediaType.TV,
+                    rank: item.rank ?? 0,
+                    runtime:
+                      Math.max(...show.episode_run_time, 0) || undefined,
+                    keywordIds: show.keywords.results.map(
+                      (keyword) => keyword.id
+                    ),
+                    companyIds: show.production_companies.map(
+                      (company) => company.id
+                    ),
+                    networkIds: show.networks.map((network) => network.id),
+                    result: mapTvDetailsToResult(show),
+                  };
+                }
+
+                if (imdbId) {
+                  const show = (await tmdb.getMediaByImdbId({
+                    imdbId,
+                  })) as TmdbTvDetails;
+                  return {
+                    type: MediaType.TV,
+                    rank: item.rank ?? 0,
+                    runtime:
+                      Math.max(...show.episode_run_time, 0) || undefined,
+                    keywordIds: show.keywords.results.map(
+                      (keyword) => keyword.id
+                    ),
+                    companyIds: show.production_companies.map(
+                      (company) => company.id
+                    ),
+                    networkIds: show.networks.map((network) => network.id),
+                    result: mapTvDetailsToResult(show),
+                  };
+                }
+              }
+            } catch (e) {
+              logger.debug('Unable to resolve MDBList item with TMDB', {
+                label: 'API',
+                errorMessage: e.message,
+                item,
+              });
+            }
+          }
+        )
+      )
+    ).filter(
+      (
+        item
+      ): item is MdbListResolvedItem => !!item
+    );
+    const filteredItems = sortMdbListItems(
+      filterMdbListItems(resolvedItems, query),
+      query.sortBy as SortOptions
+    );
+    const pageItems = isFiltered
+      ? filteredItems.slice((page - 1) * itemsPerPage, page * itemsPerPage)
+      : filteredItems;
+
+    const media = await Media.getRelatedMedia(
+      req.user,
+      pageItems.map((item) => ({
+        tmdbId: item.result.id,
+        mediaType: item.type,
+      }))
+    );
+
+    return res.status(200).json({
+      page,
+      totalPages: Math.max(
+        1,
+        Math.ceil(
+          (isFiltered ? filteredItems.length : firstPage.pagination.total) /
+            itemsPerPage
+        )
+      ),
+      totalResults: isFiltered
+        ? filteredItems.length
+        : firstPage.pagination.total,
+      results: pageItems.map((item) => {
+        const relatedMedia = media.find(
+          (med) => med.tmdbId === item.result.id && med.mediaType === item.type
+        );
+
+        return item.type === MediaType.MOVIE
+          ? mapMovieResult(item.result, relatedMedia)
+          : mapTvResult(item.result, relatedMedia);
+      }),
+    });
+  } catch (e) {
+    logger.debug('Something went wrong retrieving MDBList items', {
+      label: 'API',
+      errorMessage: e.message,
+    });
+    return next({
+      status: e.message === 'Invalid MDBList URL.' ? 400 : 500,
+      message:
+        e.message === 'Invalid MDBList URL.'
+          ? 'Invalid MDBList URL.'
+          : 'Unable to retrieve MDBList items.',
+    });
+  }
 });
 
 discoverRoutes.get('/movies', async (req, res, next) => {

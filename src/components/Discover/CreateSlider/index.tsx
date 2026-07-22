@@ -31,6 +31,7 @@ const messages = defineMessages('components.Discover.CreateSlider', {
   providetmdbsearch: 'Provide a search query',
   providetmdbstudio: 'Provide TMDB Studio ID',
   providetmdbnetwork: 'Provide TMDB Network ID',
+  providemdblisturl: 'Provide an MDBList list URL',
   addsuccess: 'Created new slider and saved discover customization settings.',
   addfail: 'Failed to create new slider.',
   editsuccess: 'Edited slider and saved discover customization settings.',
@@ -294,6 +295,14 @@ const CreateSlider = ({ onCreate, slider }: CreateSliderProps) => {
       dataUrl: '/api/v1/discover/tv',
       params: 'watchRegion=$regionValue&watchProviders=$providersValue',
       titlePlaceholderText: intl.formatMessage(messages.slidernameplaceholder),
+    },
+    {
+      type: DiscoverSliderType.MDBLIST_LIST,
+      title: intl.formatMessage(sliderTitles.mdblist),
+      dataUrl: '/api/v1/discover/mdblist',
+      params: 'url=$value',
+      titlePlaceholderText: intl.formatMessage(messages.slidernameplaceholder),
+      dataPlaceholderText: intl.formatMessage(messages.providemdblisturl),
     },
   ];
 

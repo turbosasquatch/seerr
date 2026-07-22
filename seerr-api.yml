@@ -253,6 +253,10 @@ components:
         versionCheck:
           type: boolean
           example: false
+        mdblistApiKey:
+          type: string
+          description: MDBList API key used to load MDBList custom discover sliders.
+          example: your-mdblist-api-key
     NetworkSettings:
       type: object
       properties:
@@ -5541,6 +5545,133 @@ paths:
                     type: array
                     items:
                       $ref: '#/components/schemas/Company'
+  /discover/mdblist:
+    get:
+      summary: Discover MDBList items
+      description: Returns movies and series from an MDBList list URL using TMDB metadata.
+      tags:
+        - search
+      parameters:
+        - in: query
+          name: page
+          schema:
+            type: number
+            example: 1
+            default: 1
+        - in: query
+          name: url
+          required: true
+          schema:
+            type: string
+            example: https://mdblist.com/lists/gdb339/movies
+        - in: query
+          name: sortBy
+          schema:
+            type: string
+            example: popularity.desc
+        - in: query
+          name: primaryReleaseDateGte
+          schema:
+            type: string
+            example: 2022-01-01
+        - in: query
+          name: primaryReleaseDateLte
+          schema:
+            type: string
+            example: 2023-01-01
+        - in: query
+          name: firstAirDateGte
+          schema:
+            type: string
+            example: 2022-01-01
+        - in: query
+          name: firstAirDateLte
+          schema:
+            type: string
+            example: 2023-01-01
+        - in: query
+          name: studio
+          schema:
+            type: string
+            example: 1,2
+        - in: query
+          name: network
+          schema:
+            type: string
+            example: 1,2
+        - in: query
+          name: genre
+          schema:
+            type: string
+            example: 18
+        - in: query
+          name: keywords
+          schema:
+            type: string
+            example: 1,2
+        - in: query
+          name: excludeKeywords
+          schema:
+            type: string
+            example: 3,4
+          description: Comma-separated list of keyword IDs to exclude from results
+        - in: query
+          name: language
+          schema:
+            type: string
+            example: en
+        - in: query
+          name: withRuntimeGte
+          schema:
+            type: number
+            example: 60
+        - in: query
+          name: withRuntimeLte
+          schema:
+            type: number
+            example: 120
+        - in: query
+          name: voteAverageGte
+          schema:
+            type: number
+            example: 7
+        - in: query
+          name: voteAverageLte
+          schema:
+            type: number
+            example: 10
+        - in: query
+          name: voteCountGte
+          schema:
+            type: number
+            example: 7
+        - in: query
+          name: voteCountLte
+          schema:
+            type: number
+            example: 10
+      responses:
+        '200':
+          description: MDBList items returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  page:
+                    type: number
+                  totalPages:
+                    type: number
+                  totalResults:
+                    type: number
+                  results:
+                    type: array
+                    items:
+                      oneOf:
+                        - $ref: '#/components/schemas/MovieResult'
+                        - $ref: '#/components/schemas/TvResult'
+        '400':
+          description: MDBList is not configured or URL is invalid
   /discover/movies:
     get:
       summary: Discover movies

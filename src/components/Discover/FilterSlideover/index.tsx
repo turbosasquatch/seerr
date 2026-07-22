@@ -52,6 +52,7 @@ type FilterSlideoverProps = {
   onClose: () => void;
   type: 'movie' | 'tv';
   currentFilters: FilterOptions;
+  showAvailabilityFilters?: boolean;
 };
 
 const FilterSlideover = ({
@@ -59,6 +60,7 @@ const FilterSlideover = ({
   onClose,
   type,
   currentFilters,
+  showAvailabilityFilters = true,
 }: FilterSlideoverProps) => {
   const intl = useIntl();
   const { currentSettings } = useSettings();
@@ -206,16 +208,20 @@ const FilterSlideover = ({
             updateQueryParams('language', value);
           }}
         />
-        <span className="text-lg font-semibold">
-          {intl.formatMessage(messages.certification)}
-        </span>
-        <USCertificationSelector
-          type={type}
-          certification={currentFilters.certification}
-          onChange={(params) => {
-            batchUpdateQueryParams(params);
-          }}
-        />
+        {showAvailabilityFilters && (
+          <>
+            <span className="text-lg font-semibold">
+              {intl.formatMessage(messages.certification)}
+            </span>
+            <USCertificationSelector
+              type={type}
+              certification={currentFilters.certification}
+              onChange={(params) => {
+                batchUpdateQueryParams(params);
+              }}
+            />
+          </>
+        )}
         <span className="text-lg font-semibold">
           {intl.formatMessage(messages.runtime)}
         </span>
@@ -333,30 +339,35 @@ const FilterSlideover = ({
             })}
           />
         </div>
-        <span className="text-lg font-semibold">
-          {intl.formatMessage(messages.streamingservices)}
-        </span>
-        <WatchProviderSelector
-          type={type}
-          region={currentFilters.watchRegion}
-          activeProviders={
-            currentFilters.watchProviders?.split('|').map((v) => Number(v)) ??
-            []
-          }
-          onChange={(region, providers) => {
-            if (providers.length) {
-              batchUpdateQueryParams({
-                watchRegion: region,
-                watchProviders: providers.join('|'),
-              });
-            } else {
-              batchUpdateQueryParams({
-                watchRegion: undefined,
-                watchProviders: undefined,
-              });
-            }
-          }}
-        />
+        {showAvailabilityFilters && (
+          <>
+            <span className="text-lg font-semibold">
+              {intl.formatMessage(messages.streamingservices)}
+            </span>
+            <WatchProviderSelector
+              type={type}
+              region={currentFilters.watchRegion}
+              activeProviders={
+                currentFilters.watchProviders
+                  ?.split('|')
+                  .map((v) => Number(v)) ?? []
+              }
+              onChange={(region, providers) => {
+                if (providers.length) {
+                  batchUpdateQueryParams({
+                    watchRegion: region,
+                    watchProviders: providers.join('|'),
+                  });
+                } else {
+                  batchUpdateQueryParams({
+                    watchRegion: undefined,
+                    watchProviders: undefined,
+                  });
+                }
+              }}
+            />
+          </>
+        )}
         <div className="pt-4">
           <Button
             className="w-full"
