@@ -7,6 +7,7 @@ export type AvailableCacheIds =
   | 'rt'
   | 'imdb'
   | 'github'
+  | 'mdblist'
   | 'plexguid'
   | 'plextv'
   | 'plexwatchlist'
@@ -60,6 +61,10 @@ class CacheManager {
     }),
     github: new Cache('github', 'GitHub API', {
       stdTtl: 21600,
+      checkPeriod: 60 * 30,
+    }),
+    mdblist: new Cache('mdblist', 'MDBList API', {
+      stdTtl: 86400,
       checkPeriod: 60 * 30,
     }),
     plexguid: new Cache('plexguid', 'Plex GUID', {

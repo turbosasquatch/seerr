@@ -155,6 +155,7 @@ export interface MainSettings {
   partialRequestsEnabled: boolean;
   enableSpecialEpisodes: boolean;
   locale: string;
+  mdblistApiKey: string;
   youtubeUrl: string;
 }
 
@@ -427,6 +428,7 @@ class Settings {
         partialRequestsEnabled: true,
         enableSpecialEpisodes: false,
         locale: 'en',
+        mdblistApiKey: '',
         youtubeUrl: '',
       },
       plex: {

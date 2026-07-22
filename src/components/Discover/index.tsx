@@ -396,6 +396,23 @@ const Discover = () => {
               />
             );
             break;
+          case DiscoverSliderType.MDBLIST_LIST:
+            sliderComponent = (
+              <MediaSlider
+                sliderKey={`custom-slider-${slider.id}`}
+                title={slider.title ?? ''}
+                url="/api/v1/discover/mdblist"
+                extraParams={
+                  slider.data
+                    ? `url=${encodeURIExtraParams(slider.data)}`
+                    : ''
+                }
+                linkUrl={`/discover/mdblist?url=${encodeURIExtraParams(
+                  slider.data ?? ''
+                )}&title=${encodeURIExtraParams(slider.title ?? '')}`}
+              />
+            );
+            break;
         }
 
         if (isEditing) {
