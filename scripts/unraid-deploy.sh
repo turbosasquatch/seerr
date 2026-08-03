@@ -11,7 +11,7 @@ Usage:
     --template /boot/config/plugins/dockerMan/templates-user/my-NAME.xml \
     --image ghcr.io/OWNER/PACKAGE:vX.Y.Z-score-mdb.N \
     --expected-commit COMMIT_SHA \
-    [--port 5055] [--execute]
+    [--expected-user UID:GID] [--port 5055] [--execute]
 
 The default is a dry run. --execute is required before this script opens SSH,
 pulls an image, edits the Unraid XML template, or recreates the container.
@@ -35,6 +35,7 @@ container=''
 template=''
 image=''
 expected_commit=''
+expected_user=''
 port='5055'
 execute=false
 
@@ -63,6 +64,11 @@ while [[ $# -gt 0 ]]; do
     --expected-commit)
       [[ $# -ge 2 ]] || die '--expected-commit requires a value.'
       expected_commit=$2
+      shift 2
+      ;;
+    --expected-user)
+      [[ $# -ge 2 ]] || die '--expected-user requires a value.'
+      expected_user=$2
       shift 2
       ;;
     --port)
@@ -96,6 +102,8 @@ done
   die 'Image must use an immutable ghcr.io vX.Y.Z-score-mdb.N tag.'
 expected_version=${BASH_REMATCH[1]#v}
 [[ $expected_commit =~ ^[0-9a-f]{7,40}$ ]] || die 'Expected commit must be a 7-40 character lowercase Git SHA.'
+[[ -z $expected_user || $expected_user =~ ^[0-9]+:[0-9]+$ ]] ||
+  die 'Expected user must use numeric UID:GID form.'
 [[ $port =~ ^[0-9]+$ && $port -ge 1 && $port -le 65535 ]] || die 'Port must be between 1 and 65535.'
 
 if [[ $execute == false ]]; then
@@ -109,6 +117,11 @@ if [[ $execute == false ]]; then
   printf '\nImage: '
   print_shell_word "$image"
   printf '\nExpected version/commit: %s / %s\n' "$expected_version" "$expected_commit"
+  if [[ -n $expected_user ]]; then
+    printf 'Expected runtime user: %s\n' "$expected_user"
+  else
+    printf 'Expected runtime user: unchanged from the existing container\n'
+  fi
   printf 'Re-run with --execute after confirming the immutable image and rollback image exist.\n'
   exit 0
 fi
@@ -116,7 +129,7 @@ fi
 command -v ssh >/dev/null 2>&1 || die 'ssh is required.'
 
 ssh "$host" /bin/bash -s -- \
-  "$container" "$template" "$image" "$expected_version" "$expected_commit" "$port" <<'REMOTE_SCRIPT'
+  "$container" "$template" "$image" "$expected_version" "$expected_commit" "$expected_user" "$port" <<'REMOTE_SCRIPT'
 set -Eeuo pipefail
 
 container=$1
@@ -124,7 +137,8 @@ template=$2
 image=$3
 expected_version=$4
 expected_commit=$5
-port=$6
+expected_user=$6
+port=$7
 update_script='/usr/local/emhttp/plugins/dynamix.docker.manager/scripts/update_container'
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 log_file="/tmp/${container}-fork-release-${timestamp}.log"
@@ -149,6 +163,7 @@ repository_count=$(grep -cE '<Repository>[^<]*</Repository>' "$template" || true
 [[ $repository_count -eq 1 ]] || die "Expected exactly one Repository element in $template; found $repository_count"
 
 old_image=$(docker inspect --format '{{.Config.Image}}' "$container")
+old_user=$(docker inspect --format '{{.Config.User}}' "$container")
 old_restart=$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$container")
 old_network=$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$container")
 old_ports=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$container")
@@ -189,6 +204,7 @@ for attempt in $(seq 1 30); do
 done
 
 new_image=$(docker inspect --format '{{.Config.Image}}' "$container")
+new_user=$(docker inspect --format '{{.Config.User}}' "$container")
 new_restart=$(docker inspect --format '{{.HostConfig.RestartPolicy.Name}}' "$container")
 new_network=$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$container")
 new_ports=$(docker inspect --format '{{json .HostConfig.PortBindings}}' "$container")
@@ -202,6 +218,12 @@ new_env=$(docker inspect --format '{{json .Config.Env}}' "$container" | /usr/bin
 ')
 
 [[ $new_image == "$image" ]] || die "Container uses $new_image instead of $image"
+if [[ -n $expected_user ]]; then
+  [[ $new_user == "$expected_user" ]] ||
+    die "Container runtime user is $new_user; expected $expected_user"
+else
+  [[ $new_user == "$old_user" ]] || die "Container runtime user changed: $old_user -> $new_user"
+fi
 [[ $new_restart == "$old_restart" ]] || die "Restart policy changed: $old_restart -> $new_restart"
 [[ $new_network == "$old_network" ]] || die "Network mode changed: $old_network -> $new_network"
 [[ $new_ports == "$old_ports" ]] || die 'Port bindings changed during recreation.'

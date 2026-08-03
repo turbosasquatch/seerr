@@ -134,13 +134,14 @@ scripts/unraid-deploy.sh \
   --container seerr-container \
   --template /boot/config/plugins/dockerMan/templates-user/my-seerr-container.xml \
   --image ghcr.io/turbosasquatch/seerr:vX.Y.Z-score-mdb.N \
-  --expected-commit "$(git rev-parse release/vX.Y.Z-score-mdb.N)"
+  --expected-commit "$(git rev-parse release/vX.Y.Z-score-mdb.N)" \
+  --expected-user 1000:1000
 ```
 
 After checking the printed target, add `--execute`. The remote phase:
 
 1. Requires the existing container, Unraid template, bridge network,
-   `/app/config` bind, and `always` restart policy.
+   `/app/config` bind, `always` restart policy, and expected runtime UID/GID.
 2. Records ports, mounts, environment, labels, network, and restart policy.
 3. Pulls the immutable image and copies the XML template to a timestamped backup.
 4. Replaces only the XML `Repository` value and invokes Unraid Docker Manager's
@@ -154,6 +155,10 @@ If verification fails, the script stops without automatic rollback and leaves
 the container, timestamped XML backup, and `/tmp/<container>-fork-release-*.log`
 for inspection. Complete authenticated UI checks for MDBList discovery,
 filtering, pagination, custom sliders, and TMDb scores before cleanup.
+
+The official Seerr image runs as `node` (`1000:1000`). Ensure an inherited
+Unraid template does not force a different `--user` value; PUID/PGID variables
+from third-party images do not change the official image's runtime user.
 
 No appdata/database backup is taken. Upstream migrations may make database
 rollback unsafe. Restoring the previous immutable image and template therefore
