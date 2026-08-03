@@ -218,7 +218,8 @@ inventory() {
   git branch --remotes --merged "$CANONICAL_BRANCH" --list 'origin/sync/*' --format='  %(refname:short)' || true
   note 'Legacy fork branches to review after feature-parity confirmation:'
   git for-each-ref --sort=refname --format='  %(refname:short)' \
-    refs/heads/codex/ refs/heads/custom/v refs/remotes/origin/codex/ refs/remotes/origin/custom/v || true
+    refs/heads/codex/ refs/heads/custom/ refs/remotes/origin/codex/ refs/remotes/origin/custom/ |
+    awk '$1 != "custom/main" && $1 != "origin/custom/main"' || true
   note ''
   note 'Inventory only: this command intentionally deleted nothing.'
 }
