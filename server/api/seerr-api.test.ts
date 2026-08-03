@@ -1,8 +1,8 @@
+import yaml from 'js-yaml';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, it } from 'node:test';
-import yaml from 'js-yaml';
 
 const expectedParameters = [
   'page',
@@ -31,7 +31,7 @@ describe('MDBList discovery OpenAPI contract', () => {
     const spec = yaml.load(
       await readFile(resolve(process.cwd(), 'seerr-api.yml'), 'utf8')
     ) as {
-      paths: Record<string, { get: { parameters: Array<{ name: string }> } }>;
+      paths: Record<string, { get: { parameters: { name: string }[] } }>;
     };
 
     const parameters = spec.paths['/discover/mdblist'].get.parameters.map(

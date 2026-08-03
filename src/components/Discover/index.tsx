@@ -403,9 +403,7 @@ const Discover = () => {
                 title={slider.title ?? ''}
                 url="/api/v1/discover/mdblist"
                 extraParams={
-                  slider.data
-                    ? `url=${encodeURIExtraParams(slider.data)}`
-                    : ''
+                  slider.data ? `url=${encodeURIExtraParams(slider.data)}` : ''
                 }
                 linkUrl={`/discover/mdblist?url=${encodeURIExtraParams(
                   slider.data ?? ''

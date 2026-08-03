@@ -1,6 +1,6 @@
+import MdbListAPI from '@server/api/mdblist';
 import PlexTvAPI from '@server/api/plextv';
 import type { SortOptions } from '@server/api/themoviedb';
-import MdbListAPI from '@server/api/mdblist';
 import TheMovieDb from '@server/api/themoviedb';
 import type {
   TmdbKeyword,
@@ -447,8 +447,7 @@ discoverRoutes.get('/mdblist', async (req, res, next) => {
                   return {
                     type: MediaType.TV,
                     rank: item.rank ?? 0,
-                    runtime:
-                      Math.max(...show.episode_run_time, 0) || undefined,
+                    runtime: Math.max(...show.episode_run_time, 0) || undefined,
                     keywordIds: show.keywords.results.map(
                       (keyword) => keyword.id
                     ),
@@ -465,8 +464,7 @@ discoverRoutes.get('/mdblist', async (req, res, next) => {
                   return {
                     type: MediaType.TV,
                     rank: item.rank ?? 0,
-                    runtime:
-                      Math.max(...show.episode_run_time, 0) || undefined,
+                    runtime: Math.max(...show.episode_run_time, 0) || undefined,
                     keywordIds: show.keywords.results.map(
                       (keyword) => keyword.id
                     ),
@@ -485,8 +483,7 @@ discoverRoutes.get('/mdblist', async (req, res, next) => {
                   return {
                     type: MediaType.TV,
                     rank: item.rank ?? 0,
-                    runtime:
-                      Math.max(...show.episode_run_time, 0) || undefined,
+                    runtime: Math.max(...show.episode_run_time, 0) || undefined,
                     keywordIds: show.keywords.results.map(
                       (keyword) => keyword.id
                     ),
@@ -508,11 +505,7 @@ discoverRoutes.get('/mdblist', async (req, res, next) => {
           }
         )
       )
-    ).filter(
-      (
-        item
-      ): item is MdbListResolvedItem => !!item
-    );
+    ).filter((item): item is MdbListResolvedItem => !!item);
     const filteredItems = sortMdbListItems(
       filterMdbListItems(resolvedItems, query),
       query.sortBy as SortOptions

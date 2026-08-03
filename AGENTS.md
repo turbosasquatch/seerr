@@ -1,40 +1,51 @@
 # Fork Release Instructions
 
-This file is authoritative for this fork's release process and agent routing.
+This file is authoritative for maintenance of `turbosasquatch/seerr`.
 
-## Agent routing
+## Branch topology
 
-- The Sol Medium root chat orchestrates only: it assigns work, enforces gates, and reports evidence. It does not edit, test, commit, push, or deploy.
-- Wave 1 uses three Terra lanes in isolated clones: MDBList discovery/filter/API-contract work, score-card work, and workflow/documentation work.
-- Sol High owns integration and release publication after every pre-publication gate passes.
-- Luna runner owns deterministic local tests and CI monitoring only; it does not edit, commit, push, or deploy.
-- An independent Sol High agent performs the read-only release review.
-- A separate Sol Medium agent owns authorized SSH deployment.
-- Terra performs read-only post-deployment API and UI verification.
-- Route a failure first to the owning Wave 1 lane, then to Sol High for integration or compatibility work. Escalate to Sol Extra High after repeated structural failure; do not add lower-model agents to compensate.
+- `custom/main` is the only maintained fork branch. It contains official upstream
+  `main` plus the MDBList, TMDb-score, immutable-image, and maintenance changes.
+- Integrate a new official version on `sync/vX.Y.Z`, created from
+  `custom/main`. Merge `upstream/main` exactly once; never merge a prior
+  `release/*` branch or either fork `develop` branch.
+- After all release gates pass, fast-forward `custom/main` to the validated sync
+  commit and create `release/vX.Y.Z-score-mdb.1` at that exact commit.
+- Create same-version corrections on `fix/vX.Y.Z-score-mdb.N` from
+  `custom/main`. Validate the fix, fast-forward it back into `custom/main`, and
+  create `.N` at the same commit. Never amend, rebase, reuse, or force-push a
+  published release branch.
+- Use `scripts/fork-release.sh` for start, validation, finalization, and retention
+  inventory. Its validation marker is required before local release creation.
 
-## Fork maintenance
+## Coupled conflict invariants
 
-- Base every deployed release on the official upstream release tag, never `develop`.
-- Each release branch contains exactly these three custom commits, in this order:
-  1. `feat: add MDBList discovery, filtering, and API contract`
-  2. `feat: show TMDb score on poster cards`
-  3. `ci: add immutable custom-image release workflow`
-- Create `release/vX.Y.Z-score-mdb.1` directly from `upstream/vX.Y.Z` and identify patches by their exact subjects, not permanent SHAs.
-- Never merge `develop` into a deployed release branch. Never amend, rebase, delete, alter, or force-push a published `release/*` branch.
-- Correct a published release with `.2`, `.3`, and later revisions from the same official tag. Start a new upstream version at `.1`.
-- Before publishing, verify the branch is exactly three commits ahead of its upstream tag and `.github/workflows/ci.yml` has no diff from that tag.
-- Deploy only immutable GHCR tags. Retain the previous image and a configuration backup for rollback.
+- Preserve both `main.mdblistApiKey` and every upstream main setting, including
+  `main.versionCheck`, in the settings model, API, and UI.
+- Preserve the complete upstream OpenAPI document and the MDBList discovery
+  schema and route.
+- Preserve upstream migrations and discovery behavior while retaining MDBList
+  lists, filters, pagination, custom sliders, and TMDb poster scores.
+- Keep `.github/workflows/ci.yml` identical to the official upstream tag. Fork
+  images publish only through the separate immutable release workflow.
 
-## Required release gates
+## Required gates
 
-Sol High may publish only after all of these local gates pass:
+Before any push or publication, run the frozen install, typechecks, lint,
+formatting check, unit tests, and production build. Also review the API contract,
+settings coexistence, MDBList pagination/filtering, missing-score behavior,
+release history, and rollback inputs.
 
-1. The API specification regression test.
-2. Relevant unit tests.
-3. Lint.
-4. Client and server typechecks.
-5. The production build.
-6. Independent read-only Sol High review of history, patch boundaries, upstream CI cleanliness, API coverage, and rollback safety.
+Publishing and deployment are separate, explicit operations. Do not let a local
+maintenance command push, tag, delete branches, publish, change GitHub settings,
+or deploy implicitly. Deploy only immutable GHCR tags with
+`scripts/unraid-deploy.sh`; its default is a no-SSH dry run.
 
-After publication, Luna must confirm the immutable image workflow succeeds before deployment. After authorized deployment, Terra must complete live API and UI verification. If deployment or live verification fails, the Sol Medium deployment agent must restore the retained previous immutable image using the configuration backup.
+## Retention
+
+After the new container is verified, retain `custom/main`, the current release
+branch, and the immediately previous rollback release branch. Preserve older
+release provenance with annotated Git tags before deleting their branches.
+Review merged sync branches, obsolete feature branches, stale remote-tracking
+refs, and failed or untagged GHCR manifests during every release. Cleanup is
+review-first and must never remove the active or rollback release.
