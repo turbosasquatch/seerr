@@ -1,12 +1,11 @@
 import MdbListAPI from '@server/api/mdblist';
 import PlexTvAPI from '@server/api/plextv';
 import type { SortOptions } from '@server/api/themoviedb';
-import TheMovieDb from '@server/api/themoviedb';
-import type {
-  TmdbKeyword,
-  TmdbMovieDetails,
-  TmdbTvDetails,
-} from '@server/api/themoviedb/interfaces';
+import TheMovieDb, {
+  MovieSortOptionsIterable,
+  TvSortOptionsIterable,
+} from '@server/api/themoviedb';
+import type { TmdbKeyword } from '@server/api/themoviedb/interfaces';
 import { MediaType } from '@server/constants/media';
 import { getRepository } from '@server/datasource';
 import Media from '@server/entity/Media';
@@ -69,7 +68,6 @@ const discoverRoutes = Router();
 
 const QueryFilterOptions = z.object({
   page: z.coerce.string().optional(),
-  sortBy: z.coerce.string().optional(),
   primaryReleaseDateGte: z.coerce.string().optional(),
   primaryReleaseDateLte: z.coerce.string().optional(),
   firstAirDateGte: z.coerce.string().optional(),
@@ -97,13 +95,28 @@ const QueryFilterOptions = z.object({
 });
 
 export type FilterOptions = z.infer<typeof QueryFilterOptions>;
-const ApiQuerySchema = QueryFilterOptions.omit({
+const MovieApiQuerySchema = QueryFilterOptions.omit({
   certificationMode: true,
+}).extend({
+  sortBy: z.enum(MovieSortOptionsIterable).optional().catch(undefined),
+});
+const TvApiQuerySchema = QueryFilterOptions.omit({
+  certificationMode: true,
+}).extend({
+  sortBy: z.enum(TvSortOptionsIterable).optional().catch(undefined),
 });
 
-const MdbListQuerySchema = ApiQuerySchema.extend({
+const MdbListQuerySchema = QueryFilterOptions.omit({
+  certificationMode: true,
+}).extend({
+  sortBy: z
+    .union([z.enum(MovieSortOptionsIterable), z.enum(TvSortOptionsIterable)])
+    .optional()
+    .catch(undefined),
   url: z.string().min(1),
 });
+
+type MdbListFilterOptions = z.infer<typeof MdbListQuerySchema>;
 
 type MdbListResolvedItem =
   | {
@@ -125,7 +138,7 @@ type MdbListResolvedItem =
       result: ReturnType<typeof mapTvDetailsToResult>;
     };
 
-const hasActiveMdbListFilters = (query: FilterOptions): boolean =>
+const hasActiveMdbListFilters = (query: MdbListFilterOptions): boolean =>
   !!(
     query.sortBy ||
     query.primaryReleaseDateGte ||
@@ -178,7 +191,7 @@ const dateMatches = ({
 
 const filterMdbListItems = (
   items: MdbListResolvedItem[],
-  query: FilterOptions
+  query: MdbListFilterOptions
 ) => {
   const genres = splitNumberFilter(query.genre);
   const keywords = splitNumberFilter(query.keywords);
@@ -422,9 +435,19 @@ discoverRoutes.get('/mdblist', async (req, res, next) => {
                 }
 
                 if (imdbId) {
-                  const movie = (await tmdb.getMediaByImdbId({
-                    imdbId,
-                  })) as TmdbMovieDetails;
+                  const externalIdResult = await tmdb.getByExternalId({
+                    externalId: imdbId,
+                    type: 'imdb',
+                  });
+                  const movieId = externalIdResult.movie_results[0]?.id;
+
+                  if (!movieId) {
+                    throw new Error(
+                      `No movie returned from TMDB for IMDb ID ${imdbId}`
+                    );
+                  }
+
+                  const movie = await tmdb.getMovie({ movieId });
                   return {
                     type: MediaType.MOVIE,
                     rank: item.rank ?? 0,
@@ -477,9 +500,19 @@ discoverRoutes.get('/mdblist', async (req, res, next) => {
                 }
 
                 if (imdbId) {
-                  const show = (await tmdb.getMediaByImdbId({
-                    imdbId,
-                  })) as TmdbTvDetails;
+                  const externalIdResult = await tmdb.getByExternalId({
+                    externalId: imdbId,
+                    type: 'imdb',
+                  });
+                  const tvId = externalIdResult.tv_results[0]?.id;
+
+                  if (!tvId) {
+                    throw new Error(
+                      `No show returned from TMDB for IMDb ID ${imdbId}`
+                    );
+                  }
+
+                  const show = await tmdb.getTvShow({ tvId });
                   return {
                     type: MediaType.TV,
                     rank: item.rank ?? 0,
@@ -508,7 +541,7 @@ discoverRoutes.get('/mdblist', async (req, res, next) => {
     ).filter((item): item is MdbListResolvedItem => !!item);
     const filteredItems = sortMdbListItems(
       filterMdbListItems(resolvedItems, query),
-      query.sortBy as SortOptions
+      query.sortBy
     );
     const pageItems = isFiltered
       ? filteredItems.slice((page - 1) * itemsPerPage, page * itemsPerPage)
@@ -563,13 +596,13 @@ discoverRoutes.get('/movies', async (req, res, next) => {
   const tmdb = createTmdbWithRegionLanguage(req.user);
 
   try {
-    const query = ApiQuerySchema.parse(req.query);
+    const query = MovieApiQuerySchema.parse(req.query);
     const keywords = query.keywords;
     const excludeKeywords = query.excludeKeywords;
 
     const data = await tmdb.getDiscoverMovies({
       page: Number(query.page),
-      sortBy: query.sortBy as SortOptions,
+      sortBy: query.sortBy,
       language: req.locale ?? query.language,
       originalLanguage: query.language,
       genre: query.genre,
@@ -601,7 +634,8 @@ discoverRoutes.get('/movies', async (req, res, next) => {
       data.results.map((result) => ({
         tmdbId: result.id,
         mediaType: MediaType.MOVIE,
-      }))
+      })),
+      { includeActiveRequest: true }
     );
 
     let keywordData: TmdbKeyword[] = [];
@@ -673,7 +707,8 @@ discoverRoutes.get<{ language: string }>(
         data.results.map((result) => ({
           tmdbId: result.id,
           mediaType: MediaType.MOVIE,
-        }))
+        })),
+        { includeActiveRequest: true }
       );
 
       return res.status(200).json({
@@ -734,7 +769,8 @@ discoverRoutes.get<{ genreId: string }>(
         data.results.map((result) => ({
           tmdbId: result.id,
           mediaType: MediaType.MOVIE,
-        }))
+        })),
+        { includeActiveRequest: true }
       );
 
       return res.status(200).json({
@@ -785,7 +821,8 @@ discoverRoutes.get<{ studioId: string }>(
         data.results.map((result) => ({
           tmdbId: result.id,
           mediaType: MediaType.MOVIE,
-        }))
+        })),
+        { includeActiveRequest: true }
       );
 
       return res.status(200).json({
@@ -838,7 +875,8 @@ discoverRoutes.get('/movies/upcoming', async (req, res, next) => {
       data.results.map((result) => ({
         tmdbId: result.id,
         mediaType: MediaType.MOVIE,
-      }))
+      })),
+      { includeActiveRequest: true }
     );
 
     return res.status(200).json({
@@ -871,12 +909,12 @@ discoverRoutes.get('/tv', async (req, res, next) => {
   const tmdb = createTmdbWithRegionLanguage(req.user);
 
   try {
-    const query = ApiQuerySchema.parse(req.query);
+    const query = TvApiQuerySchema.parse(req.query);
     const keywords = query.keywords;
     const excludeKeywords = query.excludeKeywords;
     const data = await tmdb.getDiscoverTv({
       page: Number(query.page),
-      sortBy: query.sortBy as SortOptions,
+      sortBy: query.sortBy,
       language: req.locale ?? query.language,
       genre: query.genre,
       network: query.network ? Number(query.network) : undefined,
@@ -909,7 +947,8 @@ discoverRoutes.get('/tv', async (req, res, next) => {
       data.results.map((result) => ({
         tmdbId: result.id,
         mediaType: MediaType.TV,
-      }))
+      })),
+      { includeActiveRequest: true }
     );
 
     let keywordData: TmdbKeyword[] = [];
@@ -980,7 +1019,8 @@ discoverRoutes.get<{ language: string }>(
         data.results.map((result) => ({
           tmdbId: result.id,
           mediaType: MediaType.TV,
-        }))
+        })),
+        { includeActiveRequest: true }
       );
 
       return res.status(200).json({
@@ -1041,7 +1081,8 @@ discoverRoutes.get<{ genreId: string }>(
         data.results.map((result) => ({
           tmdbId: result.id,
           mediaType: MediaType.TV,
-        }))
+        })),
+        { includeActiveRequest: true }
       );
 
       return res.status(200).json({
@@ -1092,7 +1133,8 @@ discoverRoutes.get<{ networkId: string }>(
         data.results.map((result) => ({
           tmdbId: result.id,
           mediaType: MediaType.TV,
-        }))
+        })),
+        { includeActiveRequest: true }
       );
 
       return res.status(200).json({
@@ -1145,7 +1187,8 @@ discoverRoutes.get('/tv/upcoming', async (req, res, next) => {
       data.results.map((result) => ({
         tmdbId: result.id,
         mediaType: MediaType.TV,
-      }))
+      })),
+      { includeActiveRequest: true }
     );
 
     return res.status(200).json({
@@ -1218,7 +1261,8 @@ discoverRoutes.get('/trending', async (req, res, next) => {
       data.results.map((result) => ({
         tmdbId: result.id,
         mediaType: isMovie(result) ? MediaType.MOVIE : MediaType.TV,
-      }))
+      })),
+      { includeActiveRequest: true }
     );
 
     return res.status(200).json({
@@ -1265,7 +1309,8 @@ discoverRoutes.get<{ keywordId: string }>(
         data.results.map((result) => ({
           tmdbId: result.id,
           mediaType: MediaType.MOVIE,
-        }))
+        })),
+        { includeActiveRequest: true }
       );
 
       return res.status(200).json({
